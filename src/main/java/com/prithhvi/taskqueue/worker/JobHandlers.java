@@ -2,6 +2,7 @@ package com.prithhvi.taskqueue.worker;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 import tools.jackson.databind.JsonNode;
 
@@ -26,9 +27,17 @@ public class JobHandlers {
             // Simulates I/O-bound work like calling an email API: {"ms": 50}
             "sleep", payload -> Thread.sleep(payload.path("ms").asLong(50)),
 
-            // Always throws: lets us test failure handling. {"message": "..."}
+            // Always throws: ends up DEAD after max_attempts. {"message": "..."}
             "fail", payload -> {
                 throw new RuntimeException(payload.path("message").asString("simulated failure"));
+            },
+
+            // Fails some of the time, like a flaky network call: {"failRate": 0.5}
+            // Shows retries turning transient failures into successes.
+            "flaky", payload -> {
+                if (ThreadLocalRandom.current().nextDouble() < payload.path("failRate").asDouble(0.5)) {
+                    throw new RuntimeException("flaky failure");
+                }
             }
     );
 

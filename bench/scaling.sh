@@ -8,6 +8,7 @@
 # Usage: bench/scaling.sh [jobs] [type] [sleep_ms] [worker counts...]
 #   bench/scaling.sh 20000 noop 0 1 2 4 8 16
 #   bench/scaling.sh 1000 sleep 20 1 8
+#   BATCH_SIZE=10 bench/scaling.sh 20000 noop 0 8   # batch claiming
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +33,7 @@ for K in $COUNTS; do
   W_PID=$!
   while :; do
     W=$(curl -s "localhost:8080/stats/window?from=$FROM&to=$TO")
-    DONE=$(echo "$W" | python3 -c 'import json,sys; print(json.load(sys.stdin)["done"])')
+    DONE=$(echo "$W" | python3 -c 'import json,sys; w=json.load(sys.stdin); print(w["done"]+w["dead"])')
     [ "$DONE" -ge "$JOBS" ] && break
     sleep 0.5
   done

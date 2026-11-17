@@ -80,14 +80,16 @@ def main():
     ap.add_argument("--stats-url", default=None, help="defaults to --url")
     ap.add_argument("--jobs", type=int, default=10000)
     ap.add_argument("--concurrency", type=int, default=16)
-    ap.add_argument("--type", default="noop", choices=["noop", "sleep"])
+    ap.add_argument("--type", default="noop", choices=["noop", "sleep", "flaky"])
     ap.add_argument("--ms", type=int, default=20, help="duration of each sleep job")
+    ap.add_argument("--fail-rate", type=float, default=0.5, help="for flaky jobs")
     ap.add_argument("--enqueue-only", action="store_true")
     ap.add_argument("--timeout", type=int, default=600)
     args = ap.parse_args()
     stats_url = args.stats_url or args.url
 
-    body = {"type": args.type, "payload": {"ms": args.ms} if args.type == "sleep" else {}}
+    payloads = {"sleep": {"ms": args.ms}, "flaky": {"failRate": args.fail_rate}}
+    body = {"type": args.type, "payload": payloads.get(args.type, {})}
     print(f"Enqueuing {args.jobs} '{args.type}' jobs with {args.concurrency} client threads...")
     ids, lat, errors, elapsed = enqueue_all(args.url, args.jobs, args.concurrency, body)
     print(f"  enqueue: {len(ids)/elapsed:,.0f} req/s | "
@@ -103,16 +105,17 @@ def main():
     deadline = time.time() + args.timeout
     while True:
         w = get_json(stats_url, f"/stats/window?from={first}&to={last}")
-        if w["done"] >= len(ids) or time.time() > deadline:
+        # DEAD jobs are finished too: they've used up their retries.
+        if w["done"] + w["dead"] >= len(ids) or time.time() > deadline:
             break
         time.sleep(0.5)
 
     done, secs = w["done"], w["processing_seconds"]
-    print(f"  processed: {done}/{len(ids)} done in {secs:.2f} s "
+    print(f"  processed: {done}/{len(ids)} done, {w['dead']} dead, in {secs:.2f} s "
           f"-> {done / secs:,.0f} jobs/s")
     print(f"  enqueue->done latency: p50 {w['p50_latency_ms']:.0f} ms | "
           f"p99 {w['p99_latency_ms']:.0f} ms")
-    print(f"  claimed more than once: {w['claimed_more_than_once']}")
+    print(f"  claimed more than once (retried or recovered): {w['claimed_more_than_once']}")
 
 
 if __name__ == "__main__":

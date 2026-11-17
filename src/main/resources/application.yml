@@ -16,6 +16,15 @@ taskqueue:
     count: ${WORKERS:8}
     # How long an idle worker waits before checking the table again.
     poll-interval-ms: ${POLL_INTERVAL_MS:50}
+    # Jobs claimed per database round trip. 10 measured ~79% faster than 1 on no-op jobs.
+    batch-size: ${BATCH_SIZE:10}
+    # Retry delay = min(retry-max-ms, retry-base-ms * 2^(attempt-1)), with random jitter.
+    retry-base-ms: ${RETRY_BASE_MS:1000}
+    retry-max-ms: ${RETRY_MAX_MS:300000}
+    # A job RUNNING longer than this is assumed to belong to a dead worker and is requeued.
+    # Must be longer than your slowest job (times batch-size), or healthy jobs get requeued.
+    lease-ms: ${LEASE_MS:30000}
+    reaper-interval-ms: ${REAPER_INTERVAL_MS:5000}
 
 management:
   endpoints:

@@ -1,7 +1,7 @@
 package com.prithhvi.taskqueue.worker;
 
 import java.lang.management.ManagementFactory;
-import java.util.Optional;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -60,13 +60,15 @@ public class WorkerPool implements SmartLifecycle {
     private void loop(String workerId) {
         while (running) {
             try {
-                Optional<Job> next = repo.claimNext(workerId);
-                if (next.isEmpty()) {
+                List<Job> batch = repo.claimBatch(workerId, props.batchSize());
+                if (batch.isEmpty()) {
                     // Queue is empty: back off briefly instead of hammering the database.
                     Thread.sleep(props.pollIntervalMs());
                     continue;
                 }
-                execute(next.get(), workerId);
+                for (Job job : batch) {
+                    execute(job, workerId);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -81,11 +83,15 @@ public class WorkerPool implements SmartLifecycle {
     private void execute(Job job, String workerId) throws InterruptedException {
         try {
             handlers.get(job.type()).run(json.readTree(job.payload()));
-            repo.complete(job.id(), workerId);
+            if (!repo.complete(job.id(), workerId)) {
+                // Our lease expired and the reaper gave this job to someone else.
+                log.warn("Job {} finished after its lease expired; result discarded", job.id());
+            }
         } catch (InterruptedException e) {
             throw e;
         } catch (Exception e) {
-            repo.fail(job.id(), workerId, e.toString());
+            long delay = Backoff.delayMs(job.attempts(), props.retryBaseMs(), props.retryMaxMs());
+            repo.fail(job.id(), workerId, e.toString(), delay);
         }
     }
 
